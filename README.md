@@ -1,36 +1,199 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# VK Quiz App
 
-## Getting Started
+VK Quiz is a Next.js 16 quiz app with organizer and participant screens, Prisma + SQLite persistence, and cookie-based organizer auth.
 
-First, run the development server:
+The existing quiz UI was intentionally preserved. Organizer auth, quiz management, participant join/play flow, and leaderboards now use real database-backed API routes. The participant frontend only keeps `participantId`, `sessionId`, and `roomCode` in `sessionStorage` for navigation recovery.
+
+## Tech Stack
+
+- Next.js 16 App Router
+- React 19
+- Prisma ORM
+- SQLite
+- bcryptjs for password hashing
+
+## Environment
+
+Create a `.env` file from `.env.example` if you need to recreate it:
+
+```bash
+cp .env.example .env
+```
+
+Required variables:
+
+```env
+DATABASE_URL="file:./dev.db"
+AUTH_SECRET="change-me-before-production"
+```
+
+The SQLite database file is created at `prisma/dev.db`.
+
+## Install And Run
+
+```bash
+npm install
+npx prisma generate
+npx prisma migrate deploy
+npm run dev
+```
+
+Open `http://localhost:3000`.
+
+Development and production now use the custom Node.js server in [server.mjs](/C:/Users/jawad/vk-quiz-app/server.mjs) so Next.js and Socket.IO share the same HTTP server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run build
+npm run start
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Prisma Workflow
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Generate the Prisma client:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npx prisma generate
+```
 
-## Learn More
+Create a new migration while editing the schema:
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm run prisma:migrate -- --name your_migration_name
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Apply checked-in migrations:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+npx prisma migrate deploy
+```
 
-## Deploy on Vercel
+## Database Schema
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The Prisma schema includes:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `User`
+- `Quiz`
+- `Question`
+- `Option`
+- `QuizSession`
+- `Participant`
+- `Answer`
+
+The initial migration is checked in under `prisma/migrations/20260729190000_init/`.
+
+## API Routes
+
+Auth:
+
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `GET /api/auth/me`
+
+Quiz routes:
+
+- `GET /api/quizzes`
+- `POST /api/quizzes`
+- `GET /api/quizzes/[id]`
+- `PATCH /api/quizzes/[id]`
+- `DELETE /api/quizzes/[id]`
+- `GET /api/quizzes/room/[roomCode]`
+
+Session routes:
+
+- `POST /api/sessions`
+- `GET /api/sessions/room/[roomCode]`
+- `PATCH /api/sessions/[id]`
+- `POST /api/sessions/[id]/join`
+- `GET /api/sessions/[id]/participants`
+- `POST /api/sessions/[id]/answers`
+- `GET /api/sessions/[id]/leaderboard`
+
+## Auth Notes
+
+- Passwords are hashed with `bcryptjs`.
+- Successful login and registration set an `httpOnly` session cookie.
+- Organizer quiz routes require that cookie.
+
+## Real-Time Architecture
+
+- [server.mjs](/C:/Users/jawad/vk-quiz-app/server.mjs) starts Next.js 16 and attaches Socket.IO to the same Node.js HTTP server.
+- [socket-server.mjs](/C:/Users/jawad/vk-quiz-app/socket-server.mjs) validates organizer, participant, and leaderboard subscriptions before joining rooms.
+- [src/lib/socket/server.ts](/C:/Users/jawad/vk-quiz-app/src/lib/socket/server.ts) is the reusable server-side emit layer used by API routes after successful Prisma/database mutations.
+- [src/lib/socket/client.ts](/C:/Users/jawad/vk-quiz-app/src/lib/socket/client.ts) is the reusable client singleton used by organizer, participant, and leaderboard pages.
+- Prisma and the existing API routes remain the source of truth. Socket events only notify clients after successful database updates.
+- Pages still do a normal fetch on first load and after reconnect so refreshes restore the current state from SQLite even without an active socket connection.
+
+## Socket Events
+
+The app uses room-based events keyed by `sessionId` and a separate organizer room for organizer-only events:
+
+- `participant:join`
+- `participant:list-updated`
+- `quiz:started`
+- `quiz:question-changed`
+- `quiz:finished`
+- `answer:submitted`
+- `leaderboard:updated`
+
+Current behavior:
+
+- Participant joins immediately update organizer participant counts.
+- Starting a quiz emits `quiz:started`.
+- Changing the current question emits `quiz:question-changed`.
+- Finishing a quiz emits `quiz:finished`.
+- Answer submissions emit `answer:submitted` to the organizer room and `leaderboard:updated` to all session subscribers.
+
+## Participant Flow Notes
+
+- Participants join with a real `QuizSession` room code.
+- Answers are validated and scored on the backend inside the existing transaction.
+- Correct answers are not exposed to participants before submission.
+- Leaderboards are loaded from the database and persist after refresh.
+- WebSocket is only the real-time notification layer; it does not replace database persistence.
+
+## Manual Test Flow
+
+Use one normal browser window for the organizer and one private/incognito window for the participant:
+
+1. Organizer window:
+   - Open `/organizer`
+   - Register a new organizer account or log in
+   - Create a quiz from `/organizer/dashboard/create`
+   - Open the quiz from `/organizer/dashboard/quiz/[id]`
+   - Click the start button and note the room code
+2. Participant window:
+   - Open `/join`
+   - Enter a name and the organizer room code
+   - Verify that the organizer participant count updates immediately
+   - Verify that `/play/[roomCode]` loads and switches automatically as the organizer moves through the session
+   - Submit an answer and confirm the organizer leaderboard updates immediately
+3. Organizer window:
+   - Move to the next question and verify the participant view changes instantly without a refresh
+   - Finish the quiz and verify the participant sees the final result screen instantly
+4. Participant window:
+   - Confirm the final score screen appears automatically
+   - Open `/leaderboard/[roomCode]` and verify ordering by score and correct answer count
+   - Leave the leaderboard open and verify new answer results appear live before the quiz finishes
+5. Refresh check:
+   - Refresh both organizer and participant windows during an active or finished session
+   - Verify that the current session state, score, participants, and leaderboard restore from the database
+6. Organizer window:
+   - Delete a quiz from the dashboard
+   - Log out and confirm organizer pages redirect back to `/organizer`
+
+## Verification
+
+Recommended commands:
+
+```bash
+npx prisma format
+npx prisma generate
+npx prisma migrate status
+npm run typecheck
+npm run lint
+npm run build
+```
+
+On Windows, `npx prisma generate` can fail if `node_modules/.prisma/client/query_engine-windows.dll.node` is locked by another running process. If that happens, stop the process that is holding the file and rerun the command.
