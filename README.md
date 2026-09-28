@@ -40,7 +40,7 @@ npm run dev
 
 Open `http://localhost:3000`.
 
-Development and production now use the custom Node.js server in [server.mjs](/C:/Users/jawad/vk-quiz-app/server.mjs) so Next.js and Socket.IO share the same HTTP server:
+Development and production now use the custom Node.js server in [server.mjs](./server.mjs) so Next.js and Socket.IO share the same HTTP server:
 
 ```bash
 npm run dev
@@ -118,10 +118,10 @@ Session routes:
 
 ## Real-Time Architecture
 
-- [server.mjs](/C:/Users/jawad/vk-quiz-app/server.mjs) starts Next.js 16 and attaches Socket.IO to the same Node.js HTTP server.
-- [socket-server.mjs](/C:/Users/jawad/vk-quiz-app/socket-server.mjs) validates organizer, participant, and leaderboard subscriptions before joining rooms.
-- [src/lib/socket/server.ts](/C:/Users/jawad/vk-quiz-app/src/lib/socket/server.ts) is the reusable server-side emit layer used by API routes after successful Prisma/database mutations.
-- [src/lib/socket/client.ts](/C:/Users/jawad/vk-quiz-app/src/lib/socket/client.ts) is the reusable client singleton used by organizer, participant, and leaderboard pages.
+- [server.mjs](./server.mjs) starts Next.js 16 and attaches Socket.IO to the same Node.js HTTP server.
+- [socket-server.mjs](./socket-server.mjs) validates organizer, participant, and leaderboard subscriptions before joining rooms.
+- [src/lib/socket/server.ts](./src/lib/socket/server.ts) is the reusable server-side emit layer used by API routes after successful Prisma/database mutations.
+- [src/lib/socket/client.ts](./src/lib/socket/client.ts) is the reusable client singleton used by organizer, participant, and leaderboard pages.
 - Prisma and the existing API routes remain the source of truth. Socket events only notify clients after successful database updates.
 - Pages still do a normal fetch on first load and after reconnect so refreshes restore the current state from SQLite even without an active socket connection.
 
